@@ -1,5 +1,5 @@
 import React from "react";
-import { ScrollView } from "react-native";
+import { ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { YStack, XStack, Text, Card, Button, Image, Circle } from "tamagui";
 import {
@@ -9,23 +9,40 @@ import {
   ArrowRight,
   Clock,
   ChevronRight,
+  BarChart3,
 } from "@tamagui/lucide-icons";
 import { Link, useRouter } from "expo-router";
 import { Colors } from "../../constants/Colors";
-import { PRODUCTS } from "../../constants/data";
+import { useExpiringSoon, useStats } from "../../store/products";
+import * as Haptics from "expo-haptics";
+
+import Svg, { Circle as SvgCircle } from 'react-native-svg';
+import { useProductsStore } from '../../store/products';
+import { useEffect } from 'react';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const expiringSoon = PRODUCTS.sort((a, b) =>
-    a.expiryDate.localeCompare(b.expiryDate)
-  ).slice(0, 3);
-  const todayCount = PRODUCTS.filter((p) => {
-    const today = new Date().toISOString().split("T")[0];
-    return p.expiryDate === today;
-  }).length;
+  const expiringSoon = useExpiringSoon();
+  const stats = useStats();
+  const refreshStats = useProductsStore(state => state.refreshStats);
 
-  // Fake calculation for "Food Waste Saved"
-  const savedPercentage = 85;
+  useEffect(() => {
+    refreshStats();
+  }, []);
+
+  // Calculate saved percentage (consumed vs total)
+  const totalItems = stats.consumed + stats.expired;
+  const savedPercentage = totalItems > 0 
+    ? Math.round((stats.consumed / totalItems) * 100) 
+    : 100;
+
+  // Chart Config
+  const size = 80;
+  const strokeWidth = 6;
+  const center = size / 2;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progressOffset = circumference - (savedPercentage / 100) * circumference;
 
   return (
     <SafeAreaView
@@ -38,53 +55,78 @@ export default function HomeScreen() {
       >
         <YStack padding="$4" gap="$5">
           {/* Summary Widget */}
-          <Card
-            backgroundColor={Colors.primary}
-            borderRadius="$6"
-            padding="$4"
-            elevation={10}
-            shadowColor={Colors.primary}
-            shadowOpacity={0.4}
-            shadowRadius={10}
-            shadowOffset={{ width: 0, height: 10 }}
+          <TouchableOpacity 
+            activeOpacity={0.9}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/modal");
+            }}
           >
-            <XStack justifyContent="space-between" alignItems="center">
-              <YStack gap="$2">
-                <Text color="white" fontSize="$4" opacity={0.9}>
-                  Waste Saved This Month
-                </Text>
-                <Text color="white" fontSize="$9" fontWeight="800">
-                  2.4 kg
-                </Text>
-                <XStack alignItems="center" gap="$2">
-                  <Text color="white" fontSize="$3" opacity={0.9}>
-                    That's ~ $45 saved! 💰
+            <Card
+              backgroundColor={Colors.primary}
+              borderRadius="$6"
+              padding="$4"
+              elevation={10}
+              shadowColor={Colors.primary}
+              shadowOpacity={0.4}
+              shadowRadius={10}
+              shadowOffset={{ width: 0, height: 10 }}
+            >
+              <XStack justifyContent="space-between" alignItems="center">
+                <YStack gap="$2">
+                  <Text color="white" fontSize="$4" opacity={0.9}>
+                    Waste Saved This Month
                   </Text>
-                </XStack>
-              </YStack>
-              {/* Simple Ring Visualization using Border */}
-              <Circle
-                size={80}
-                borderWidth={6}
-                borderColor="rgba(255,255,255,0.3)"
-                justifyContent="center"
-                alignItems="center"
-              >
-                <Circle
-                  size={80}
-                  borderWidth={6}
-                  borderColor="white"
-                  borderTopColor="transparent"
-                  borderRightColor="transparent"
-                  position="absolute"
-                  style={{ transform: [{ rotate: "45deg" }] }}
-                />
-                <Text color="white" fontWeight="bold">
-                  {savedPercentage}%
-                </Text>
-              </Circle>
-            </XStack>
-          </Card>
+                  <Text color="white" fontSize="$9" fontWeight="800">
+                    {(stats.consumed * 0.3).toFixed(1)} kg
+                  </Text>
+                  <XStack alignItems="center" gap="$2">
+                    <Text color="white" fontSize="$3" opacity={0.9}>
+                      That's ~ ${stats.consumed * 5} saved! 💰
+                    </Text>
+                  </XStack>
+                  <XStack alignItems="center" gap="$1" marginTop="$1">
+                    <Text color="white" fontSize="$2" opacity={0.8}>Tap for details</Text>
+                    <ArrowRight size={12} color="white" opacity={0.8} />
+                  </XStack>
+                </YStack>
+                
+                {/* SVG Circular Progress */}
+                <YStack alignItems="center" justifyContent="center" width={size} height={size}>
+                  <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+                    {/* Background Circle */}
+                    <SvgCircle
+                      cx={center}
+                      cy={center}
+                      r={radius}
+                      stroke="rgba(255,255,255,0.3)"
+                      strokeWidth={strokeWidth}
+                      fill="transparent"
+                    />
+                    {/* Progress Circle */}
+                    {savedPercentage > 0 && (
+                      <SvgCircle
+                        cx={center}
+                        cy={center}
+                        r={radius}
+                        stroke="white"
+                        strokeWidth={strokeWidth}
+                        strokeDasharray={circumference}
+                        strokeDashoffset={progressOffset}
+                        strokeLinecap="round"
+                        fill="transparent"
+                      />
+                    )}
+                  </Svg>
+                  <YStack position="absolute" alignItems="center" justifyContent="center">
+                    <Text color="white" fontWeight="bold">
+                      {savedPercentage}%
+                    </Text>
+                  </YStack>
+                </YStack>
+              </XStack>
+            </Card>
+          </TouchableOpacity>
 
           {/* Quick Actions */}
           <YStack gap="$3">
@@ -101,7 +143,10 @@ export default function HomeScreen() {
                 flexDirection="column"
                 gap="$2"
                 pressStyle={{ opacity: 0.8 }}
-                onPress={() => router.push("/add")}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/scanner");
+                }}
               >
                 <Circle size={40} backgroundColor={Colors.greenLight}>
                   <Scan size={20} color={Colors.primary} />
@@ -120,7 +165,10 @@ export default function HomeScreen() {
                 flexDirection="column"
                 gap="$2"
                 pressStyle={{ opacity: 0.8 }}
-                onPress={() => router.push("/add")}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/add");
+                }}
               >
                 <Circle size={40} backgroundColor={Colors.yellowLight}>
                   <Plus size={20} color={Colors.yellow} />
@@ -139,7 +187,10 @@ export default function HomeScreen() {
                 flexDirection="column"
                 gap="$2"
                 pressStyle={{ opacity: 0.8 }}
-                onPress={() => router.push("/inventory")}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/inventory");
+                }}
               >
                 <Circle size={40} backgroundColor={Colors.redLight}>
                   <ArrowRight size={20} color={Colors.red} />
@@ -176,13 +227,27 @@ export default function HomeScreen() {
                   elevation={2}
                 >
                   <XStack>
-                    <Image
-                      source={{ uri: item.image, width: 100, height: 100 }}
-                      style={{
-                        borderTopLeftRadius: 10,
-                        borderBottomLeftRadius: 10,
-                      }}
-                    />
+                    {item.image ? (
+                      <Image
+                        source={{ uri: item.image, width: 100, height: 100 }}
+                        style={{
+                          borderTopLeftRadius: 10,
+                          borderBottomLeftRadius: 10,
+                        }}
+                      />
+                    ) : (
+                      <YStack 
+                        width={100} 
+                        height={100} 
+                        backgroundColor={Colors.border} 
+                        alignItems="center" 
+                        justifyContent="center"
+                        borderTopLeftRadius={10}
+                        borderBottomLeftRadius={10}
+                      >
+                        <Text fontSize="$6">🥫</Text>
+                      </YStack>
+                    )}
                     <YStack
                       padding="$3"
                       flex={1}

@@ -2,6 +2,7 @@ import { Tabs, useRouter } from 'expo-router';
 import { Home, Package, Plus, ChefHat } from '@tamagui/lucide-icons';
 import { Colors } from '../../constants/Colors';
 import { View, StyleSheet, Pressable } from 'react-native';
+import * as Haptics from 'expo-haptics';
 
 export default function TabLayout() {
   const router = useRouter();
@@ -44,18 +45,51 @@ export default function TabLayout() {
           name="inventory"
           options={{
             tabBarIcon: ({ color }) => <Package color={color} size={24} />,
+            tabBarButton: ({ onPress, style, children }) => (
+              <Pressable
+                style={style}
+                onPress={(e) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onPress?.(e);
+                }}
+              >
+                {children}
+              </Pressable>
+            ),
           }}
         />
         <Tabs.Screen
           name="index"
           options={{
             tabBarIcon: ({ color }) => <Home color={color} size={24} />,
+            tabBarButton: ({ onPress, style, children }) => (
+              <Pressable
+                style={style}
+                onPress={(e) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onPress?.(e);
+                }}
+              >
+                {children}
+              </Pressable>
+            ),
           }}
         />
         <Tabs.Screen
           name="recipes"
           options={{
             tabBarIcon: ({ color }) => <ChefHat color={color} size={24} />,
+            tabBarButton: ({ onPress, style, children }) => (
+              <Pressable
+                style={style}
+                onPress={(e) => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onPress?.(e);
+                }}
+              >
+                {children}
+              </Pressable>
+            ),
           }}
         />
         <Tabs.Screen
@@ -72,7 +106,13 @@ export default function TabLayout() {
           styles.plusButton,
           pressed && styles.plusButtonPressed,
         ]}
-        onPress={() => router.push('/add')}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          router.push({
+            pathname: '/(tabs)/add',
+            params: { resetKey: Date.now().toString() },
+          });
+        }}
       >
         <Plus color="#FFFFFF" size={26} strokeWidth={2.5}/>
       </Pressable>

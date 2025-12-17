@@ -1,33 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { YStack, XStack, Text, Button, Input, Label, TextArea, Sheet, Image } from 'tamagui';
-import { Scan, Camera, Calendar, ChevronDown, Check, X, Activity } from '@tamagui/lucide-icons';
+import { YStack, XStack, Text, Button, Input, Label, TextArea, Sheet, Image, Spinner } from 'tamagui';
+import { Camera, Calendar, ChevronDown, Check, X, Trash2, ArrowLeft, Activity } from '@tamagui/lucide-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { useProductsStore } from '../../store/products';
-import { NewProduct } from '../../utils/database';
+import { getProductById, NewProduct } from '../../utils/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 
 const CATEGORIES = ['Fridge', 'Pantry', 'Freezer'] as const;
 
-export default function AddProductScreen() {
+export default function EditProductScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
-    prefillName?: string;
-    prefillImage?: string;
-    prefillQuantity?: string;
-    prefillCategory?: string;
-    fromScanner?: string;
-    resetKey?: string;
-    prefillNutrition?: string;
-  }>();
-  
-  const addProduct = useProductsStore((state) => state.addProduct);
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const editProduct = useProductsStore((state) => state.editProduct);
+  const removeProduct = useProductsStore((state) => state.removeProduct);
   const isLoading = useProductsStore((state) => state.isLoading);
+  const isInitialized = useProductsStore((state) => state.isInitialized);
   
+  const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [category, setCategory] = useState<typeof CATEGORIES[number]>('Fridge');
   const [quantity, setQuantity] = useState('');
@@ -41,53 +36,55 @@ export default function AddProductScreen() {
   const [carbs, setCarbs] = useState('');
   const [fat, setFat] = useState('');
 
-  // Reset form function
-  const resetForm = () => {
-    setName('');
-    setCategory('Fridge');
-    setQuantity('');
-    setNotes('');
-    setExpiryDate(new Date());
-    setImage(null);
-    setImage(null);
-    setCalories('');
-    setProtein('');
-    setCarbs('');
-    setFat('');
-    setShowDatePicker(false);
-    setShowCategorySheet(false);
-  };
-
-  // Reset form when FAB is pressed (resetKey changes)
   useEffect(() => {
-    if (params.resetKey) {
-      resetForm();
+    if (isInitialized) {
+      loadProduct();
     }
-  }, [params.resetKey]);
+  }, [id, isInitialized]);
 
-  // Prefill form when coming from scanner
-  useEffect(() => {
-    if (params.fromScanner === 'true') {
-      if (params.prefillName) setName(params.prefillName);
-      if (params.prefillImage) setImage(params.prefillImage);
-      if (params.prefillQuantity) setQuantity(params.prefillQuantity);
-      if (params.prefillCategory && CATEGORIES.includes(params.prefillCategory as typeof CATEGORIES[number])) {
-        setCategory(params.prefillCategory as typeof CATEGORIES[number]);
-      }
-      if (params.prefillNutrition) {
-        try {
-          const nut = JSON.parse(params.prefillNutrition);
-          if (nut.calories) setCalories(nut.calories.toString());
-          if (nut.protein) setProtein(nut.protein.toString());
-          if (nut.carbs) setCarbs(nut.carbs.toString());
-          if (nut.fat) setFat(nut.fat.toString());
-        } catch (e) {
-          // Ignore parsing error
+  const loadProduct = async () => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const product = await getProductById(Number(id));
+      if (product) {
+        setName(product.name);
+        setCategory(product.category);
+        setQuantity(product.quantity);
+        if (product.notes) {
+          // Parse nutrition info from notes
+          const nutritionRegex = /Values: ([\d?]+) kcal \| P: (\d+)g \| C: (\d+)g \| F: (\d+)g/;
+          const match = product.notes.match(nutritionRegex);
+          if (match) {
+            setCalories(match[1] === '?' ? '' : match[1]);
+            setProtein(match[2]);
+            setCarbs(match[3]);
+            setFat(match[4]);
+            // Remove nutrition info from displayed notes to avoid duplication
+            setNotes(product.notes.replace(nutritionRegex, '').replace(/\n\n$/, '').trim());
+          } else {
+            setNotes(product.notes);
+          }
+        } else {
+          setNotes('');
         }
+        setExpiryDate(new Date(product.expiryDate));
+        setImage(product.image);
+      } else {
+        Alert.alert('Not Found', 'Product not found', [
+          { text: 'OK', onPress: () => router.back() }
+        ]);
       }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to load product. Please try again.', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
+    } finally {
+      setLoading(false);
     }
-  }, [params.fromScanner, params.prefillName, params.prefillImage, params.prefillQuantity, params.prefillCategory, params.prefillNutrition]);
+  };
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString(undefined, { 
@@ -155,61 +152,6 @@ export default function AddProductScreen() {
     setImage(null);
   };
 
-  const editImage = () => {
-    if (!image) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    Alert.alert(
-      'Change Photo',
-      'How would you like to update this photo?',
-      [
-        {
-          text: 'Take New Photo',
-          onPress: async () => {
-            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== 'granted') {
-              Alert.alert('Permission needed', 'Please grant camera permissions.');
-              return;
-            }
-            const result = await ImagePicker.launchCameraAsync({
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.7,
-            });
-            if (!result.canceled && result.assets[0]) {
-              setImage(result.assets[0].uri);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-          },
-        },
-        {
-          text: 'Choose from Gallery',
-          onPress: async () => {
-            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (status !== 'granted') {
-              Alert.alert('Permission needed', 'Please grant gallery permissions.');
-              return;
-            }
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'],
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.7,
-            });
-            if (!result.canceled && result.assets[0]) {
-              setImage(result.assets[0].uri);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-          },
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
-  };
-
   const handleSave = async () => {
     if (!name.trim()) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -219,7 +161,7 @@ export default function AddProductScreen() {
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    const product: NewProduct = {
+    const updates: Partial<NewProduct> = {
       name: name.trim(),
       image: image,
       expiryDate: expiryDate.toISOString().split('T')[0],
@@ -228,28 +170,52 @@ export default function AddProductScreen() {
       notes: notes.trim() || null,
     };
 
-    // Append nutrition to notes if input
+    // Re-append nutrition info
     if (calories || protein || carbs || fat) {
       const nutritionNote = `Values: ${calories || '?'} kcal | P: ${protein || 0}g | C: ${carbs || 0}g | F: ${fat || 0}g`;
-      if (product.notes) {
-        product.notes += `\n\n${nutritionNote}`;
+      if (updates.notes) {
+        updates.notes += `\n\n${nutritionNote}`;
       } else {
-        product.notes = nutritionNote;
+        updates.notes = nutritionNote;
       }
     }
 
     try {
-      await addProduct(product);
+      await editProduct(Number(id), updates);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
-        'Success!',
-        `${name} has been added to your kitchen.`,
+        'Updated!',
+        `${name} has been updated.`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Error', 'Failed to save product. Please try again.');
+      Alert.alert('Error', 'Failed to update product. Please try again.');
     }
+  };
+
+  const handleDelete = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    Alert.alert(
+      'Delete Item',
+      `Are you sure you want to delete "${name}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await removeProduct(Number(id));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              router.back();
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete product');
+            }
+          }
+        },
+      ]
+    );
   };
 
   const handleCategorySelect = (cat: typeof CATEGORIES[number]) => {
@@ -258,21 +224,28 @@ export default function AddProductScreen() {
     setShowCategorySheet(false);
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
+        <Spinner size="large" color={Colors.primary} />
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }} edges={['left', 'right']}>
+        <StatusBar style="light" />
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
         <YStack padding="$4" gap="$3">
-          
-          <Text fontSize="$8" fontWeight="bold" color={Colors.text}>Add Item</Text>
 
           {/* Image Preview or Capture Options */}
           {image ? (
             <YStack alignItems="center" gap="$3">
               <YStack position="relative">
-                  <Image
-                    source={{ uri: image, width: 200, height: 200 }}
-                    borderRadius={20}
-                  />
+                <Image
+                  source={{ uri: image, width: 200, height: 200 }}
+                  borderRadius={20}
+                />
                 <TouchableOpacity
                   onPress={removeImage}
                   style={{
@@ -309,30 +282,10 @@ export default function AddProductScreen() {
               </XStack>
             </YStack>
           ) : (
-            <XStack gap="$3">
+            <XStack gap="$3" justifyContent="center">
               <Button 
-                flex={1} 
-                height={120} 
-                backgroundColor={Colors.primaryLight} 
-                borderRadius="$4" 
-                flexDirection="column"
-                gap="$2"
-                chromeless
-                borderWidth={2}
-                borderColor={Colors.primary}
-                borderStyle="dashed"
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push('/scanner');
-                }}
-              >
-                <Scan size={32} color={Colors.primary} />
-                <Text color={Colors.primary} fontWeight="bold" fontSize="$4">Scan Barcode</Text>
-              </Button>
-              
-              <Button 
-                flex={1} 
-                height={120} 
+                height={100} 
+                width={150}
                 backgroundColor={Colors.surface} 
                 borderRadius="$4" 
                 flexDirection="column"
@@ -341,18 +294,16 @@ export default function AddProductScreen() {
                 onPress={takePhoto}
               >
                 <Camera size={32} color={Colors.text} />
-                <Text color={Colors.text} fontWeight="bold" fontSize="$4">Take Photo</Text>
+                <Text color={Colors.text} fontWeight="bold" fontSize="$3">Add Photo</Text>
               </Button>
             </XStack>
           )}
 
-          <Text textAlign="center" color={Colors.textSecondary} fontWeight="600">- OR ENTER MANUALLY -</Text>
-
           {/* Form */}
-          <YStack gap="$2">
+          <YStack gap="$3">
             
             {/* Product Name */}
-            <YStack>
+            <YStack gap="$1.5">
               <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">PRODUCT NAME *</Label>
               <Input 
                 placeholder="e.g., Cheddar Cheese" 
@@ -364,13 +315,13 @@ export default function AddProductScreen() {
                 borderRadius="$4"
                 fontSize="$4"
                 value={name}
-                onChangeText={setName}
                 color={Colors.text}
+                onChangeText={setName}
               />
             </YStack>
 
             {/* Quantity */}
-            <YStack>
+            <YStack gap="$1.5">
               <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">QUANTITY</Label>
               <Input 
                 placeholder="e.g., 500g, 2 packs, 1L" 
@@ -382,13 +333,13 @@ export default function AddProductScreen() {
                 borderRadius="$4"
                 fontSize="$4"
                 value={quantity}
-                onChangeText={setQuantity}
                 color={Colors.text}
+                onChangeText={setQuantity}
               />
             </YStack>
 
             {/* Category */}
-            <YStack>
+            <YStack gap="$1.5">
                <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">CATEGORY</Label>
                <TouchableOpacity onPress={() => {
                  Haptics.selectionAsync();
@@ -410,7 +361,7 @@ export default function AddProductScreen() {
             </YStack>
 
             {/* Expiry Date */}
-            <YStack>
+            <YStack gap="$1.5">
                <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">EXPIRY DATE</Label>
                <TouchableOpacity onPress={() => {
                  Haptics.selectionAsync();
@@ -430,9 +381,26 @@ export default function AddProductScreen() {
                  </XStack>
                </TouchableOpacity>
             </YStack>
+            
+            {/* Notes */}
+            <YStack gap="$1.5">
+              <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">NOTES (OPTIONAL)</Label>
+              <TextArea 
+                placeholder="Opened on..." 
+                placeholderTextColor={Colors.textSecondary}
+                backgroundColor={Colors.surface} 
+                borderWidth={1} 
+                borderColor={Colors.border}
+                padding="$3"
+                borderRadius="$4"
+                fontSize="$4"
+                value={notes}
+                onChangeText={setNotes}
+              />
+            </YStack>
 
             {/* Nutrition Info Inputs */}
-            <YStack>
+            <YStack gap="$1.5">
               <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">NUTRITION (OPTIONAL)</Label>
               <YStack 
                 backgroundColor={Colors.surface} 
@@ -518,45 +486,39 @@ export default function AddProductScreen() {
                 </XStack>
               </YStack>
             </YStack>
-            
-            {/* Notes */}
-            <YStack gap="$1.5">
-              <Label color={Colors.textSecondary} fontSize="$3" fontWeight="600">NOTES (OPTIONAL)</Label>
-              <TextArea 
-                placeholder="Opened on..." 
-                placeholderTextColor={Colors.textSecondary}
-                backgroundColor={Colors.surface} 
-                borderWidth={1} 
-                borderColor={Colors.border}
-                padding="$3"
-                borderRadius="$4"
-                fontSize="$4"
-                value={notes}
-                onChangeText={setNotes}
-              />
-            </YStack>
 
           </YStack>
 
-          {/* Save Button */}
-          <Button 
-            backgroundColor={Colors.primary} 
-            size="$5" 
-            borderRadius="$6" 
-            marginTop="$2"
-            pressStyle={{ opacity: 0.9 }}
-            elevation={5}
-            shadowColor={Colors.primary}
-            shadowOpacity={0.4}
-            shadowRadius={10}
-            shadowOffset={{ width: 0, height: 4 }}
-            onPress={handleSave}
-            disabled={isLoading}
-          >
-            <Text color="white" fontWeight="bold" fontSize="$5">
-              {isLoading ? 'Saving...' : 'Save Item'}
-            </Text>
-          </Button>
+          {/* Action Buttons */}
+          <YStack gap="$2">
+            <Button 
+              backgroundColor={Colors.primary} 
+              size="$5" 
+              borderRadius="$6"
+              pressStyle={{ opacity: 0.9 }}
+              elevation={5}
+              shadowColor={Colors.primary}
+              shadowOpacity={0.4}
+              shadowRadius={10}
+              shadowOffset={{ width: 0, height: 4 }}
+              onPress={handleSave}
+              disabled={isLoading}
+            >
+              <Text color="white" fontWeight="bold" fontSize="$5">
+                {isLoading ? 'Saving...' : 'Save Changes'}
+              </Text>
+            </Button>
+
+            <Button 
+              backgroundColor={Colors.redLight} 
+              size="$4" 
+              borderRadius="$4"
+              onPress={handleDelete}
+              icon={<Trash2 size={20} color={Colors.red} />}
+            >
+              <Text color={Colors.red} fontWeight="600">Delete Item</Text>
+            </Button>
+          </YStack>
 
         </YStack>
       </ScrollView>
@@ -580,7 +542,6 @@ export default function AddProductScreen() {
                   mode="date"
                   display="spinner"
                   onChange={handleDateChange}
-                  minimumDate={new Date()}
                 />
                 <Button 
                   backgroundColor={Colors.primary} 
@@ -597,7 +558,6 @@ export default function AddProductScreen() {
             mode="date"
             display="default"
             onChange={handleDateChange}
-            minimumDate={new Date()}
           />
         )
       )}

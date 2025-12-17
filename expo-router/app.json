@@ -39,12 +39,19 @@
             "newArchEnabled": true
           },
           "android": {
-            "newArchEnabled": true
+            "newArchEnabled": true,
+            "enableEdgeToEdge": true
           }
         }
       ],
       "expo-web-browser",
-      "expo-navigation-bar"
+      [
+        "expo-navigation-bar",
+        {
+          "visibility": "hidden"
+        }
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true
